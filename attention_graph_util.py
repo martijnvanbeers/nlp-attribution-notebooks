@@ -121,7 +121,7 @@ def compute_node_flow(G, labels_to_index, input_nodes, output_nodes,length):
 
     return flow_values
 
-def compute_joint_attention(att_mat, add_residual=True):
+def compute_joint_attention(att_mat, layer_dim=0, add_residual=True):
     if add_residual:
         residual_att = np.eye(att_mat.shape[-1])[None,...]
         aug_att_mat = att_mat + residual_att
@@ -131,10 +131,13 @@ def compute_joint_attention(att_mat, add_residual=True):
 
     joint_attentions = np.zeros(aug_att_mat.shape)
 
-    layers = joint_attentions.shape[0]
-    joint_attentions[0] = aug_att_mat[0]
+    layers = joint_attentions.shape[layer_dim]
+    dim_tup = tuple(0 if d == layer_dim else slice(None,None,None) for d in range(len(joint_attentions.shape) - 2))
+    joint_attentions[dim_tup] = aug_att_mat[dim_tup]
     for i in np.arange(1,layers):
+        dim_tup = tuple(i if d == layer_dim else slice(None,None,None) for d in range(len(joint_attentions.shape) - 2))
+        prev_tup = tuple(i-1 if d == layer_dim else slice(None,None,None) for d in range(len(joint_attentions.shape) - 2))
         # matmul does dot product on the last two axes,
-        joint_attentions[i] = np.matmul(aug_att_mat[i], joint_attentions[i-1])
+        joint_attentions[dim_tup] = np.matmul(aug_att_mat[dim_tup], joint_attentions[prev_tup])
 
     return joint_attentions
