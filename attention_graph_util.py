@@ -2,6 +2,27 @@ import colorsys
 import networkx as nx
 import numpy as np
 
+def create_adjecency_labels(layer_count, tokens):
+    length = len(tokens)
+    labels_to_index = {
+            f"{k}_{tokens[k]}": k
+                for k in range(length)
+        }
+    for i in np.arange(n_layers) + 1:
+        labels_to_index.update({
+                f"L{i}_{k}": (i * length) + k
+                    for k in range(length)
+            })
+    return labels_to_index
+
+
+def create_adjecency_matrix(mat):
+    layers, token_len = mat.shape[:2]
+    adjecency_matrix = np.zeros(((layers+1)*token_len, (layers+1)*token_len))
+    for i in np.arange(layers) + 1:
+        adjecency_matrix[i*token_len:(i+1)*token_len,(i-1)*token_len:i*token_len] = mat[i-1]
+    return adjecency_matrix
+
 def get_adjmat(mat, input_tokens):
     n_layers, length, _ = mat.shape
     adj_mat = np.zeros(((n_layers+1)*length, (n_layers+1)*length))
@@ -88,6 +109,51 @@ def draw_attention_graph(adjmat, labels_to_index, n_layers, length, draw_edge_la
         nx.draw_networkx_edge_labels(G,pos,edge_labels, label_pos=0.2)
 
     return G
+
+def compute_flows_labelless(G, node_count, length):
+    flow_values=np.zeros((node_count,node_count))
+    for u in range(node_count):
+        if u < length:
+            continue
+        current_layer = int(u / length)
+        prev_layer = current_layer - 1
+        for v in range(length):
+            flow_value = nx.maximum_flow_value(G,u,v, capacity='weight', flow_func=nx.algorithms.flow.edmonds_karp)
+            flow_values[u][prev_layer*length+v ] = flow_value
+        flow_values[u] /= flow_values[u].sum()
+
+    return flow_values
+
+def convert_adjmat_tomats(adjmat, n_layers, l):
+   mats = np.zeros((n_layers,l,l))
+
+   for i in np.arange(n_layers):
+       mats[i] = adjmat[(i+1)*l:(i+2)*l,i*l:(i+1)*l]
+
+   return mats
+
+def batch_to_flow(mat):
+#    print(mat.shape)
+    result = []
+    for span in mat:
+#        print("span", span.shape)
+        span_result = []
+        for head in range(span.shape[1]):
+            head_mat = span[:,head]
+#            print("head", head_mat.shape)
+            head_adj = create_adjecency_matrix(span[:,head])
+            G=nx.from_numpy_matrix(head_adj, create_using=nx.DiGraph())
+            flow_values = compute_flows_labelless(G, head_adj.shape[0], length=span.shape[-1])
+            flow_att_mat = convert_adjmat_tomats(flow_values, n_layers=span.shape[0], l=span.shape[-1])
+            span_result.append(flow_att_mat)
+        span_result = np.array(span_result)
+        span_result = np.swapaxes(span_result, 0, 1)
+#        print("span result", span_result.shape)
+        result.append(span_result)
+    result = np.array(result)
+#    print(result.shape)
+    return result
+
 
 def compute_flows(G, labels_to_index, input_nodes, length):
     number_of_nodes = len(labels_to_index)
