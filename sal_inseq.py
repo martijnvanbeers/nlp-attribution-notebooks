@@ -48,14 +48,14 @@ def encode(batch):
 
 dataset.set_transform(encode)
 
-orig_embs = model.roberta.embeddings.word_embeddings.weight.data
-new_embs = torch.cat((orig_embs, torch.zeros(1, orig_embs.shape[-1]).to(DEVICE)))
-model.roberta.embeddings.word_embeddings.weight.data = new_embs
-model.roberta.embeddings.word_embeddings.num_embeddings += 1
-
-zero_id = torch.tensor(50265).to(DEVICE)
-
-model.roberta.embeddings.word_embeddings(zero_id)
+#orig_embs = model.roberta.embeddings.word_embeddings.weight.data
+#new_embs = torch.cat((orig_embs, torch.zeros(1, orig_embs.shape[-1]).to(DEVICE)))
+#model.roberta.embeddings.word_embeddings.weight.data = new_embs
+#model.roberta.embeddings.word_embeddings.num_embeddings += 1
+#
+#zero_id = torch.tensor(50265).to(DEVICE)
+#
+#model.roberta.embeddings.word_embeddings(zero_id)
 
 
 
@@ -71,23 +71,19 @@ input_ids = item['input_ids']
 print(input_ids)
 sen_len = len(item['text'])
 
-baseline_id = tokenizer.unk_token_id
-baseline_ids = torch.tensor([baseline_id] * sen_len, device=DEVICE)
-print(baseline_ids)
-label = item['label'].item()
-
-inseq = inseq.load_model(model, "integrated_gradients")
+inseq = inseq.load_model(model, "saliency")
 fmt = inseq.formatter
 batch = fmt.prepare_inputs_for_attribution(inseq.attribution_method.attribution_model, [sen])
-print(batch)
+#print(batch)
 #attributed_fn = get_step_function(inseq.attribution_method.attribution_model.default_attributed_fn_id)
 attributed_fn = get_step_function("logit")
-main_args = fmt.format_attribution_args(batch=batch, target_ids=item['label'], attributed_fn=attributed_fn, use_baselines=True)
-print("FOO", main_args.keys())
-print("MAIN ARGS:", main_args['inputs'][0].shape)
-result = inseq.attribution_method.attribute_step(main_args, dict(n_steps=50))
+main_args = fmt.format_attribution_args(batch=batch, target_ids=item['label'], attributed_fn=attributed_fn)
+#print("MAIN ARGS:", main_args['inputs'][0].shape)
+with torch.no_grad():
+    result = inseq.attribution_method.attribute_step(main_args)
 print("RESULT:", result)
-print("RESULT:", result.target_attributions.sum(-1).squeeze())
+saliency_attributions = result.target_attributions.sum(-1).squeeze()
+print(list(zip(item['text'], saliency_attributions.detach().cpu().numpy())))
 
 
 

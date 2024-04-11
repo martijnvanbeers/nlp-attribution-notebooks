@@ -9,8 +9,7 @@ from datasets import load_dataset
 
 from abc import abstractmethod
 
-from captum.attr import visualization
-from captum.attr import IntegratedGradients
+from captum.attr import Saliency
 
 
 os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
@@ -51,14 +50,14 @@ def encode(batch):
 
 dataset.set_transform(encode)
 
-orig_embs = model.roberta.embeddings.word_embeddings.weight.data
-new_embs = torch.cat((orig_embs, torch.zeros(1, orig_embs.shape[-1]).to(DEVICE)))
-model.roberta.embeddings.word_embeddings.weight.data = new_embs
-model.roberta.embeddings.word_embeddings.num_embeddings += 1
-
-zero_id = torch.tensor(50265).to(DEVICE)
-
-model.roberta.embeddings.word_embeddings(zero_id)
+#orig_embs = model.roberta.embeddings.word_embeddings.weight.data
+#new_embs = torch.cat((orig_embs, torch.zeros(1, orig_embs.shape[-1]).to(DEVICE)))
+#model.roberta.embeddings.word_embeddings.weight.data = new_embs
+#model.roberta.embeddings.word_embeddings.num_embeddings += 1
+#
+#zero_id = torch.tensor(50265).to(DEVICE)
+#
+#model.roberta.embeddings.word_embeddings(zero_id)
 
 
 class FeatureAttributor:
@@ -106,38 +105,32 @@ class FeatureAttributor:
         return logits
 
 def model_forward(inputs_embeds):
-    print("INPUT_EMBEDS:", inputs_embeds.shape)
     return model(inputs_embeds=inputs_embeds).logits
 
 
-class IGAttributor(FeatureAttributor):
+class SaliencyAttributor(FeatureAttributor):
     def attribute(
         self,
         input_ids: torch.Tensor,
-        baseline_ids: torch.Tensor,
         target: int,
-        n_steps: int = 50,
     ) -> torch.Tensor:
         ### Start Student ###
-        ig = IntegratedGradients(model_forward)
+        sal = Saliency(model_forward)
 
         inputs_embeds = model.roberta.embeddings.word_embeddings(input_ids.unsqueeze(0))
-        baseline_embeds = model.roberta.embeddings.word_embeddings(baseline_ids.unsqueeze(0))
 
         print("INPUT_EMBEDS", inputs_embeds.shape)
         print("TARGET", target)
-        print("BASELINES", baseline_embeds.shape)
-        ig_attributions = ig.attribute(
-            inputs_embeds,
-            target=target,
-            baselines=baseline_embeds,
-#            n_steps=n_steps
-        )
-        print(ig_attributions.shape)
-        ig_attributions = ig_attributions.sum(-1).squeeze()
-        print(ig_attributions.shape)
+        with torch.no_grad():
+            saliency_attributions = sal.attribute(
+                inputs_embeds,
+                target=target,
+            )
+        print(saliency_attributions.shape)
+        saliency_attributions = saliency_attributions.sum(-1).squeeze()
+        print(saliency_attributions.shape)
 
-        return ig_attributions
+        return saliency_attributions
         ### End Student ###
 
 sen = "I wish I liked it more, although I did not dislike it"
@@ -150,13 +143,9 @@ item = {
 input_ids = item['input_ids']
 sen_len = len(item['text'])
 
-baseline_id = tokenizer.unk_token_id
-eos_id = tokenizer.eos_token_id
-baseline_ids = torch.tensor([baseline_id] * (sen_len-1) + [eos_id], device=DEVICE)
-print("BASELINES", baseline_ids)
 label = item['label'].item()
 
-ig_attributor = IGAttributor(model)
-ig_attributions = ig_attributor.attribute(input_ids, baseline_ids, label)
+saliency_attributor = SaliencyAttributor(model)
+saliency_attributions = saliency_attributor.attribute(input_ids, label)
 
-print(ig_attributions)
+print(list(zip(item['text'], saliency_attributions.detach().cpu().numpy())))
